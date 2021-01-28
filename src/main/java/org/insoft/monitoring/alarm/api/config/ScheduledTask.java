@@ -8,6 +8,9 @@ import org.insoft.monitoring.alarm.api.model.ResultStatus;
 import org.insoft.monitoring.alarm.api.model.Ums;
 import org.insoft.monitoring.alarm.api.service.ConsumerService;
 import org.insoft.monitoring.alarm.api.service.SendEmsUmsService;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,10 +19,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 
 import javax.annotation.PostConstruct;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.Base64.Decoder;
 
 /**
  * Kafka Scheduling 클래스
@@ -48,18 +52,23 @@ public class ScheduledTask {
         createConsumerInstance();
     }
 
+
+    /**
+     * Consumer Instance 유뮤 확인 후 없을 시 생성 및 Topic 구독
+     *
+     */
     public void createConsumerInstance() {
         LOGGER.info("Init Method!!!");
 
         // 1. consumer가 있는지 확인
-        Object jsonMsgList = consumerService.getMessage(propertyService.getGroupId(), propertyService.getInstanceName());
-        if(isResultStatusInstanceCheck(jsonMsgList)) {
+        Object rsMap = consumerService.getSubscription(propertyService.getGroupId(), propertyService.getInstanceName());
+        if(isResultStatusCheck(rsMap)) {
             LOGGER.info("Consumer Instance isn't exist...");
 
             // 2. 없으면 만들어줘요
             Map<String, String> params = new HashMap<>();
             params.put("name", propertyService.getInstanceName());
-            params.put("format", "json");
+            params.put("format", "binary");
             params.put("auto.offset.reset", propertyService.getOffsetReset());
             params.put("auto.commit.enable", propertyService.getEnableAutoCommit());
 
@@ -74,37 +83,69 @@ public class ScheduledTask {
         }
     }
 
+
+    /**
+     * Get Kafka Message Periodically
+     *
+     */
     @Scheduled(fixedRateString = "${messaging.ready-fixed-rate}", initialDelayString = "${messaging.ready-initial-delay}")
     public void readyGetMessaging() {
         LOGGER.info("===================Kafka get Message & Sending Email, SMS ::: start===================");
 
         try {
             Object obj = consumerService.getMessage(propertyService.getGroupId(), propertyService.getInstanceName());
-            if(isResultStatusInstanceCheck(obj)) {
+            if(isResultStatusCheck(obj)) {
                 LOGGER.info("Message Get Error");
                 return;
             }
 
-            List<Map<String, Object>> resultList = (List<Map<String, Object>>) obj;
+            List<Map> resultList = (List<Map>) obj;
             LOGGER.info("resultList ::: " + resultList.toString());
             LOGGER.info("resultList size ::: " + resultList.size());
 
             if(resultList.size() > 0) {
-                for (Map<String, Object> map : resultList) {
+                for (Map map : resultList) {
                     String content = "";
+                    String trigger = "";
                     LOGGER.info("result ::: " + map);
 
-                    Map<String, Object> result = (Map<String, Object>) map.get(Constants.DATA_KEY);
+                    // Base64 value
+                    String value = (String) map.get(Constants.DATA_KEY);
 
-                    if (result != null) {
-                        content = result.get(Constants.DATA_DESC_KEY).toString();
+                    // Base64 value to Json Object
+                    JSONObject resultJson = decodeBase64String(value);
+
+                    LOGGER.info("result >>> " + value);
+                    LOGGER.info("result json >>> " + resultJson);
+
+                    String currentDateTime = LocalDateTime.now(ZoneId.of(Constants.STRING_TIME_ZONE_ID)).format(DateTimeFormatter.ofPattern(Constants.STRING_DATE_TYPE));
+                    
+                    String title = null;
+                    String finalMsg = currentDateTime + "에 ";
+                    
+                    if (value != null) {
+                        // alarm이 발생한 VM info
+                        trigger = resultJson.get(Constants.DATA_DETAILS_KEY).toString();
+                        LOGGER.info("trigger ::: " + trigger);
+
+                        // 최종 메시지
+                        finalMsg += trigger + " 에서";
+                        content = resultJson.get(Constants.DATA_DESC_KEY).toString();
                         LOGGER.info("content ::: " + content);
-                    }
 
-                    String emsResultMsg = callEmsApi(content);
+                        if(content.contains("-")) {
+                            String[] desc = content.split("-");
+                            title = desc[0];
+                            finalMsg += desc[1];
+                        }
+                    }
+                    LOGGER.info("title ::: " + title);
+                    LOGGER.info("finalMsg ::: " + finalMsg);
+                    
+                    String emsResultMsg = callEmsApi(title, finalMsg);
                     LOGGER.info("Email Sending Result ::: " + emsResultMsg);
 
-                    String umsResultMsg = callUmsApi(content);
+                    String umsResultMsg = callUmsApi(title, finalMsg);
                     LOGGER.info("SMS Sending Result ::: " + umsResultMsg);
 
                 }
@@ -119,23 +160,37 @@ public class ScheduledTask {
         } catch (ClassCastException ex) {
             LOGGER.info("Casting Exception...");
             LOGGER.info(ex.getLocalizedMessage());
+        } catch (ParseException e) {
+            LOGGER.info("Parse Exception...");
         }
 
         LOGGER.info("===================Kafka get Message & Sending Email, SMS  ::: end===================");
     }
 
 
-    public static boolean isResultStatusInstanceCheck(Object object) {
+    /**
+     * Error 일 경우 Error 객체로 리턴됐는지 확인
+     *
+     * @param object the object
+     * @return the boolean
+     */
+    public static boolean isResultStatusCheck(Object object) {
         return object instanceof ResultStatus;
     }
 
 
-    private String callEmsApi(String content) {
+    /**
+     * EMS 전송 API 호출
+     *
+     * @param content the content
+     * @return the String
+     */
+    private String callEmsApi(String title, String content) {
         LOGGER.info("Email send start!!!");
         EmsDetail emsDetail = EmsDetail.builder()
-                .title(Constants.DEFAULT_EMS_TITLE)
+                .title(title)
                 .content(content)
-                .sendInfo("admin@test.co.kr")
+                .sendInfo(propertyService.getEmsSendInfo())
                 .rcvInfo(propertyService.getEmsReceiver())
                 .categoryNm("전체공지")
                 .linkNm(propertyService.getEmsLinkName()).build();
@@ -148,7 +203,13 @@ public class ScheduledTask {
     }
 
 
-    private String callUmsApi(String content) {
+    /**
+     * UMS 전송 API 호출
+     *
+     * @param content the content
+     * @return the String
+     */
+    private String callUmsApi(String title, String content) {
         LOGGER.info("SMS send start!!!");
         LOGGER.info("send no ::: " + propertyService.getSendNo());
 
@@ -157,7 +218,7 @@ public class ScheduledTask {
         }
 
         Ums ums = Ums.builder()
-                .msgTitle(Constants.DEFAULT_UMS_TITLE)
+                .msgTitle(title)
                 .umsMsg(content)
                 .sendNo(propertyService.getSendNo())
                 .rcvNos(propertyService.getUmsReceiver())
@@ -168,5 +229,25 @@ public class ScheduledTask {
         LOGGER.info("result Ums :: " + resultUms.getResult().getResult());
 
         return resultUms.getResult().getResult();
+    }
+
+
+    /**
+     * Base64 to Json Object
+     *
+     * @param value the value
+     * @return the Json Object
+     * @throws ParseException
+     */
+    private JSONObject decodeBase64String(String value) throws ParseException {
+        Decoder decoder = Base64.getDecoder();
+        byte[] decodeBytes = decoder.decode(value);
+        String stringFrmJsonByteArray = new String(decodeBytes);
+
+        JSONParser parser = new JSONParser();
+        Object obj = parser.parse(stringFrmJsonByteArray);
+        JSONObject jsonObj = (JSONObject) obj;
+
+        return jsonObj;
     }
 }
