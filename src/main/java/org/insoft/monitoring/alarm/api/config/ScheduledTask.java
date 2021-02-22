@@ -123,20 +123,29 @@ public class ScheduledTask {
                     String title = null;
                     String finalMsg = currentDateTime + "에 ";
                     
-                    if (value != null) {
+                    if (value != null && Constants.STATE.equals(resultJson.get(Constants.DATA_ALERT_STATE))) {
+
                         // alarm이 발생한 VM info
                         trigger = resultJson.get(Constants.DATA_DETAILS_KEY).toString();
                         LOGGER.info("trigger ::: " + trigger);
+                        String[] triggerFromWhat = trigger.split(Constants.SPLIT_1);
+
 
                         // 최종 메시지
-                        finalMsg += trigger + " 에서";
+                        finalMsg += triggerFromWhat[1] + Constants.SPLIT_1 + triggerFromWhat[2] + "에서 ";
                         content = resultJson.get(Constants.DATA_DESC_KEY).toString();
                         LOGGER.info("content ::: " + content);
 
-                        if(content.contains("-")) {
-                            String[] desc = content.split("-");
-                            title = desc[0];
-                            finalMsg += desc[1];
+                        if(content.contains(Constants.SPLIT_2)) {
+                            String[] desc = content.split(Constants.SPLIT_2);
+                            String data = desc[1];
+                            if(data.contains(Constants.SPLIT_1)) {
+                                String[] titMsg = data.split(Constants.SPLIT_1);
+
+                                title = titMsg[0].trim();
+                                finalMsg += titMsg[1] + " 입니다.";
+                            }
+
                         }
                     }
                     LOGGER.info("title ::: " + title);
@@ -219,7 +228,7 @@ public class ScheduledTask {
 
         Ums ums = Ums.builder()
                 .msgTitle(title)
-                .umsMsg(content)
+                .umsMsg(title + "\n\r" + content)
                 .sendNo(propertyService.getSendNo())
                 .rcvNos(propertyService.getUmsReceiver())
                 .linkNm(propertyService.getUmsLinkName()).build();
