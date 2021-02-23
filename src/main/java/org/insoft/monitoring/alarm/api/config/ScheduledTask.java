@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpClientErrorException;
 
 import javax.annotation.PostConstruct;
@@ -122,8 +123,11 @@ public class ScheduledTask {
                     
                     String title = null;
                     String finalMsg = currentDateTime + "에 ";
+
+                    String state = resultJson.get(Constants.DATA_ALERT_STATE).toString();
+                    LOGGER.info("state ::: " + state);
                     
-                    if (value != null && Constants.STATE.equals(resultJson.get(Constants.DATA_ALERT_STATE))) {
+                    if (StringUtils.hasText(value) && Constants.STATE.equals(state)) {
 
                         // alarm이 발생한 VM info
                         trigger = resultJson.get(Constants.DATA_DETAILS_KEY).toString();
@@ -132,7 +136,7 @@ public class ScheduledTask {
 
 
                         // 최종 메시지
-                        finalMsg += triggerFromWhat[1] + Constants.SPLIT_1 + triggerFromWhat[2] + "에서 ";
+                        finalMsg += triggerFromWhat[1] + Constants.SPLIT_1 + triggerFromWhat[2].trim() + "%로 ";
                         content = resultJson.get(Constants.DATA_DESC_KEY).toString();
                         LOGGER.info("content ::: " + content);
 
