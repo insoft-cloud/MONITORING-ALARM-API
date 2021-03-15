@@ -128,15 +128,27 @@ public class ScheduledTask {
                     LOGGER.info("state ::: " + state);
                     
                     if (StringUtils.hasText(value) && Constants.STATE.equals(state)) {
-
                         // alarm이 발생한 VM info
                         trigger = resultJson.get(Constants.DATA_DETAILS_KEY).toString();
                         LOGGER.info("trigger ::: " + trigger);
-                        String[] triggerFromWhat = trigger.split(Constants.SPLIT_1);
+                        String[] triggerFromWhat = trigger.split(Constants.SPLIT_TRIGGER);
 
+                        String[] alarmItems = triggerFromWhat[1].split(Constants.SPLIT_ENTER);
+
+                        for(int i = 0; i < alarmItems.length; i++) {
+                            if(!alarmItems[i].toLowerCase().contains(Constants.PREFIX_EXCLUDE_VM.toLowerCase())) {
+                                if(alarmItems.length == 1 || i == alarmItems.length - 1) {
+                                    finalMsg += alarmItems[i];
+                                } else {
+                                    finalMsg += alarmItems[i] + ",\n";
+                                }
+
+                            } else {
+                                return;
+                            }
+                        }
 
                         // 최종 메시지
-                        finalMsg += triggerFromWhat[1] + Constants.SPLIT_1 + triggerFromWhat[2].trim() + "%로 ";
                         content = resultJson.get(Constants.DATA_DESC_KEY).toString();
                         LOGGER.info("content ::: " + content);
 
@@ -147,7 +159,7 @@ public class ScheduledTask {
                                 String[] titMsg = data.split(Constants.SPLIT_1);
 
                                 title = titMsg[0].trim();
-                                finalMsg += titMsg[1] + " 입니다.";
+                                finalMsg += "%로\n" + titMsg[1] + " 입니다.";
                             }
 
                         }

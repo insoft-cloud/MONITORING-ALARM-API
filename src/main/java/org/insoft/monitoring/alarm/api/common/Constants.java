@@ -25,6 +25,10 @@ public class Constants {
     public static final String DATA_ALERT_STATE = "alert_state";
     public static final String STATE = "alerting";
 
+    public static final String PREFIX_EXCLUDE_VM = "OmniStackVC-";
+
+    public static final String SPLIT_TRIGGER = "Triggered metrics:\n\n";
+    public static final String SPLIT_ENTER = "\n";
     public static final String SPLIT_1 = ":";
     public static final String SPLIT_2 = "-";
 
